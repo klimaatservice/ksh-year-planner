@@ -987,7 +987,17 @@ h1 {
 
 /* Normale tijdlijn print (A3 landscape) */
 @media print {
-  /* Page size handled by browser print settings */
+  /* 
+    BELANGRIJK: Stel in je print dialog in:
+    - Paper size: A3 of A4
+    - Orientation: Landscape (horizontaal)
+    - Margins: Minimaal
+  */
+  
+  body {
+    width: 100%;
+    height: 100%;
+  }
   
   .timeline-section {
     page-break-after: always;
