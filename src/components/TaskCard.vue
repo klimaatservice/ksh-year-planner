@@ -1,11 +1,13 @@
 <script setup>
-import { computed } from 'vue'
+import { computed, ref } from 'vue'
 
 const props = defineProps({
   task: Object
 })
 
 const emit = defineEmits(['edit', 'delete', 'click', 'dragstart', 'dragend', 'resizeStart'])
+
+const isResizing = ref(false)
 
 // Format de titel met line breaks
 const formattedTitle = computed(() => {
@@ -33,7 +35,13 @@ function handleDragEnd(event) {
 function handleResizeStart(direction, event) {
   event.preventDefault()
   event.stopPropagation()
+  isResizing.value = true
   emit('resizeStart', props.task, direction, event)
+  
+  // Reset na resize
+  setTimeout(() => {
+    isResizing.value = false
+  }, 100)
 }
 </script>
 
@@ -41,14 +49,15 @@ function handleResizeStart(direction, event) {
   <div 
     class="task-card" 
     :style="{ backgroundColor: task.color }"
-    draggable="true"
+    :draggable="!isResizing"
     @click="emit('click')"
-    @dragstart="handleDragStart"
+    @dragstart="!isResizing && handleDragStart($event)"
     @dragend="handleDragEnd"
   >
     <div 
       class="resize-handle resize-left"
       @mousedown.prevent.stop="handleResizeStart('left', $event)"
+      @click.prevent.stop
       title="Sleep om startdatum te wijzigen"
     ></div>
     <div class="task-content">
@@ -61,6 +70,7 @@ function handleResizeStart(direction, event) {
     <div 
       class="resize-handle resize-right"
       @mousedown.prevent.stop="handleResizeStart('right', $event)"
+      @click.prevent.stop
       title="Sleep om einddatum te wijzigen"
     ></div>
   </div>
@@ -165,7 +175,7 @@ function handleResizeStart(direction, event) {
   position: absolute;
   top: 0;
   bottom: 0;
-  width: 10px;
+  width: 15px;
   cursor: ew-resize;
   background: transparent;
   transition: all 0.2s;
@@ -173,7 +183,11 @@ function handleResizeStart(direction, event) {
 }
 
 .resize-handle:hover {
-  background: rgba(0, 0, 0, 0.1);
+  background: rgba(76, 175, 80, 0.3);
+}
+
+.resize-handle:active {
+  background: rgba(76, 175, 80, 0.5);
 }
 
 .resize-left {
