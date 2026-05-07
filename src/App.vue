@@ -177,16 +177,32 @@ const colors = [
 ]
 
 function addTask() {
+  // Parse maand input (format: "YYYY-MM")
+  const [startYear, startMonth] = newTask.value.startDate.split('-').map(Number)
+  const [endYear, endMonth] = newTask.value.endDate.split('-').map(Number)
+  
+  // Eerste dag van startmaand (maand is 1-indexed in input, maar 0-indexed in Date)
+  const normalizedStart = new Date(startYear, startMonth - 1, 1)
+  // Laatste dag van eindmaand
+  const normalizedEnd = new Date(endYear, endMonth, 0)
+  
   if (editingTask.value) {
     const index = tasks.value.findIndex(t => t.id === editingTask.value.id)
     if (index !== -1) {
-      tasks.value[index] = { ...newTask.value, id: editingTask.value.id }
+      tasks.value[index] = { 
+        ...newTask.value, 
+        id: editingTask.value.id,
+        startDate: normalizedStart.toISOString().split('T')[0],
+        endDate: normalizedEnd.toISOString().split('T')[0]
+      }
     }
     editingTask.value = null
   } else {
     tasks.value.push({
       ...newTask.value,
-      id: Date.now()
+      id: Date.now(),
+      startDate: normalizedStart.toISOString().split('T')[0],
+      endDate: normalizedEnd.toISOString().split('T')[0]
     })
   }
   
@@ -202,8 +218,18 @@ function addTask() {
 
 function editTask(task) {
   editingTask.value = task
+  
+  // Converteer datums naar maand format (YYYY-MM)
+  const startDate = new Date(task.startDate)
+  const endDate = new Date(task.endDate)
+  
+  const startMonth = `${startDate.getFullYear()}-${String(startDate.getMonth() + 1).padStart(2, '0')}`
+  const endMonth = `${endDate.getFullYear()}-${String(endDate.getMonth() + 1).padStart(2, '0')}`
+  
   newTask.value = { 
     ...task,
+    startDate: startMonth,
+    endDate: endMonth,
     checklist: task.checklist || [],
     comments: task.comments || []
   }
@@ -215,11 +241,14 @@ function deleteTask(taskId) {
 }
 
 function updateTask(updatedTask) {
-  // Zoek de originele taak (niet de gesplitste versie)
-  const taskId = updatedTask.originalId || updatedTask.id
+  console.log('=== APP updateTask ===')
+  console.log('Task:', updatedTask.title)
+  console.log('Incoming dates:', updatedTask.startDate, 'to', updatedTask.endDate)
   
-  // Als het een gesplitste taak ID is (bijv. "1-2026"), haal dan het originele ID eruit
+  // Zoek de originele taak
+  const taskId = updatedTask.originalId || updatedTask.id
   let realTaskId = taskId
+  
   if (typeof taskId === 'string' && taskId.includes('-')) {
     const parts = taskId.split('-')
     if (parts.length === 2 && !isNaN(parts[0])) {
@@ -227,18 +256,28 @@ function updateTask(updatedTask) {
     }
   }
   
+  console.log('Looking for task ID:', realTaskId)
+  
   const index = tasks.value.findIndex(t => t.id === realTaskId)
   
   if (index !== -1) {
-    console.log('Updating task:', tasks.value[index].title, 'naar', updatedTask.startDate, '-', updatedTask.endDate)
-    // Update de taak met de nieuwe datums, behoud andere eigenschappen
+    console.log('Found task at index:', index)
+    console.log('Old dates:', tasks.value[index].startDate, '-', tasks.value[index].endDate)
+    console.log('Old row:', tasks.value[index].row)
+    
+    // Update DIRECT - geen extra normalisatie
     tasks.value[index] = {
       ...tasks.value[index],
       startDate: updatedTask.startDate,
-      endDate: updatedTask.endDate
+      endDate: updatedTask.endDate,
+      row: updatedTask.row !== undefined ? updatedTask.row : tasks.value[index].row
     }
+    
+    console.log('New dates:', tasks.value[index].startDate, '-', tasks.value[index].endDate)
+    console.log('New row:', tasks.value[index].row)
+    console.log('✓ Update complete')
   } else {
-    console.error('Task not found:', realTaskId, taskId)
+    console.error('Task not found:', realTaskId)
   }
 }
 
@@ -296,6 +335,15 @@ function removeComment(commentId) {
 function closeDetailsModal() {
   showDetailsModal.value = false
   viewingTask.value = null
+}
+
+function editFromDetails() {
+  // Bewaar de taak
+  const taskToEdit = viewingTask.value
+  // Sluit details modal
+  closeDetailsModal()
+  // Open edit form
+  editTask(taskToEdit)
 }
 
 function cancelForm() {
@@ -361,7 +409,7 @@ function clearAllTasks() {
 </script>
 
 <template>
-  <div class="app">
+  <div class="app" :class="{ 'print-mode': showPrintView }">
     <header>
       <h1>Tijdlijn {{ year }}</h1>
       <div class="header-actions">
@@ -388,16 +436,19 @@ function clearAllTasks() {
             <textarea v-model="newTask.title" required rows="3"></textarea>
           </div>
           <div class="form-group">
-            <label>Startdatum:</label>
-            <input type="date" v-model="newTask.startDate" required />
+            <label>Startmaand:</label>
+            <input type="month" v-model="newTask.startDate" required />
+            <small class="hint">Taak begint op dag 1 van deze maand</small>
           </div>
           <div class="form-group">
-            <label>Einddatum:</label>
-            <input type="date" v-model="newTask.endDate" required />
+            <label>Eindmaand:</label>
+            <input type="month" v-model="newTask.endDate" required />
+            <small class="hint">Taak eindigt op laatste dag van deze maand</small>
           </div>
           <div class="form-group">
-            <label>Rij (0-3):</label>
-            <input type="number" v-model.number="newTask.row" min="0" max="3" required />
+            <label>Rij:</label>
+            <input type="number" v-model.number="newTask.row" min="0" required />
+            <small class="hint">Rij nummer voor verticale positie (0, 1, 2, ...)</small>
           </div>
           <div class="form-group">
             <label>Kleur:</label>
@@ -487,7 +538,7 @@ function clearAllTasks() {
         </div>
 
         <div class="modal-actions">
-          <button @click="() => { closeDetailsModal(); editTask(viewingTask); }" class="btn-secondary">
+          <button @click="editFromDetails" class="btn-secondary">
             ✏️ Bewerken
           </button>
           <button @click="closeDetailsModal" class="btn-primary">Sluiten</button>
@@ -684,6 +735,14 @@ h1 {
 
 .form-group textarea {
   resize: vertical;
+}
+
+.hint {
+  display: block;
+  margin-top: 5px;
+  font-size: 12px;
+  color: #666;
+  font-style: italic;
 }
 
 .color-picker {
@@ -897,11 +956,6 @@ h1 {
 
 /* Print stijlen */
 @media print {
-  @page {
-    size: A4 portrait;
-    margin: 15mm;
-  }
-  
   * {
     -webkit-print-color-adjust: exact !important;
     print-color-adjust: exact !important;
@@ -925,23 +979,101 @@ h1 {
     display: none !important;
   }
   
-  /* Verberg de normale timeline view bij printen */
-  .timeline-section {
-    display: none !important;
-  }
-  
-  /* Toon alleen de print-only container bij printen */
+  /* Altijd de hidden print container verbergen */
   .print-only-container {
-    display: block !important;
-  }
-  
-  /* Verberg de preview versie bij printen */
-  .app > div:not(.print-only-container) {
     display: none !important;
   }
 }
 
-.print-only-container {
-  display: none;
+/* Normale tijdlijn print (A3 landscape) */
+@media print {
+  @page {
+    size: A3 landscape;
+    margin: 15mm;
+  }
+  
+  .timeline-section {
+    page-break-after: always;
+    page-break-inside: avoid;
+    margin-bottom: 0;
+    height: 100vh;
+    display: flex;
+    flex-direction: column;
+  }
+  
+  .timeline-section:last-of-type {
+    page-break-after: auto;
+  }
+  
+  .timeline-container {
+    box-shadow: none;
+    page-break-inside: avoid;
+    padding: 5mm;
+    width: 100%;
+    flex: 1;
+    display: flex;
+    flex-direction: column;
+    overflow: hidden !important;
+  }
+  
+  .timeline-year {
+    font-size: 24px;
+    margin-bottom: 10mm;
+  }
+  
+  .timeline-header {
+    margin-bottom: 10mm;
+  }
+  
+  .timeline-grid {
+    flex: 1;
+    min-height: 0 !important;
+    height: auto !important;
+    overflow: hidden !important;
+  }
+  
+  .task-card {
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
+    page-break-inside: avoid;
+    overflow: hidden !important;
+  }
+  
+  .task-actions {
+    display: none !important;
+  }
+  
+  .grid-column {
+    border-right: 1px solid #ddd !important;
+  }
+  
+  .month-line {
+    background: #333 !important;
+  }
+  
+  .month-label {
+    color: #333 !important;
+    font-size: 12px !important;
+  }
+  
+  /* Verberg todo print view bij normale timeline print */
+  .todo-print-view {
+    display: none !important;
+  }
+  
+  /* Als we in print mode zijn, verberg timeline en toon print view */
+  .print-mode .timeline-view {
+    display: none !important;
+  }
+  
+  .print-mode .todo-print-view {
+    display: block !important;
+  }
+  
+  .print-mode {
+    @page {
+      size: A4 portrait !important;
+      margin: 15mm;
+    }
+  }
 }
 </style>

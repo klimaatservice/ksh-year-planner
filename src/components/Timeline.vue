@@ -16,6 +16,9 @@ const previewStartMonth = ref(null)
 const previewEndMonth = ref(null)
 const isResizing = ref(false)
 const hoverMonth = ref(null)
+const originalStartMonth = ref(null)
+const originalEndMonth = ref(null)
+const hoverRow = ref(null)
 
 const months = [
   'Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni',
@@ -32,9 +35,21 @@ const monthLengths = computed(() => {
 
 // Bereken grid positie voor elke taak
 function getTaskStyle(task) {
-  // Als we deze taak aan het resizen zijn, gebruik preview waarden
+  // Check of we deze taak aan het resizen zijn (match ook gesplitste IDs)
+  const resizingTaskId = resizingTask.value?.originalId || resizingTask.value?.id
+  const currentTaskId = task.originalId || task.id
+  
+  // Strip year suffix voor matching (bijv. "1-2026" wordt "1")
+  const getBaseId = (id) => {
+    if (typeof id === 'string' && id.includes('-')) {
+      const parts = id.split('-')
+      return !isNaN(parts[0]) ? parseInt(parts[0]) : id
+    }
+    return id
+  }
+  
   const isThisTaskResizing = isResizing.value && resizingTask.value && 
-    (resizingTask.value.id === task.id || resizingTask.value.originalId === task.id)
+    getBaseId(resizingTaskId) === getBaseId(currentTaskId)
   
   let startMonth, endMonth
   
@@ -149,6 +164,16 @@ function handleDragOver(event, monthIndex) {
   event.preventDefault()
   event.dataTransfer.dropEffect = 'move'
   hoverMonth.value = monthIndex
+  
+  // Detecteer welke rij (Y positie)
+  const timelineGrid = document.querySelector('.timeline-grid')
+  if (timelineGrid) {
+    const rect = timelineGrid.getBoundingClientRect()
+    const mouseY = event.clientY - rect.top
+    const rowHeight = 120 // grid-auto-rows: 100px + 20px gap
+    const detectedRow = Math.max(0, Math.floor(mouseY / rowHeight))
+    hoverRow.value = detectedRow
+  }
 }
 
 function handleDragLeave() {
@@ -159,7 +184,7 @@ function handleDrop(event, targetMonth) {
   event.preventDefault()
   event.stopPropagation()
   
-  console.log('Drop on month:', targetMonth + 1)
+  console.log('Drop on month:', targetMonth + 1, 'year:', props.year)
   
   if (!draggingTask.value) {
     console.log('No dragging task')
@@ -177,22 +202,28 @@ function handleDrop(event, targetMonth) {
   const endYear = oldEndDate.getFullYear()
   const durationInMonths = (endYear - startYear) * 12 + (endMonth - startMonth)
   
-  // Nieuwe startdatum = eerste dag van target maand
+  // Nieuwe startdatum = eerste dag van target maand in target jaar
   const newStartDate = new Date(props.year, targetMonth, 1)
   // Nieuwe einddatum = laatste dag van (target maand + duur)
-  const newEndMonth = targetMonth + durationInMonths
-  const newEndDate = new Date(props.year, newEndMonth + 1, 0) // Laatste dag van de maand
+  const endDateCalc = new Date(props.year, targetMonth + durationInMonths + 1, 0)
   
-  console.log('Updating:', task.title, 'to', newStartDate.toLocaleDateString(), '-', newEndDate.toLocaleDateString())
+  // Detecteer nieuwe rij
+  const newRow = hoverRow.value !== null ? hoverRow.value : task.row
+  
+  console.log('Updating:', task.title)
+  console.log('  To:', newStartDate.toLocaleDateString(), '-', endDateCalc.toLocaleDateString())
+  console.log('  Row:', task.row, '->', newRow)
   
   emit('updateTask', {
     ...task,
     startDate: newStartDate.toISOString().split('T')[0],
-    endDate: newEndDate.toISOString().split('T')[0]
+    endDate: endDateCalc.toISOString().split('T')[0],
+    row: newRow
   })
   
   draggingTask.value = null
   hoverMonth.value = null
+  hoverRow.value = null
 }
 
 // Resize handlers met live preview
@@ -200,15 +231,24 @@ function handleResizeStart(task, direction, event) {
   event.stopPropagation()
   event.preventDefault()
   
+  console.log('=== RESIZE START ===')
+  console.log('Task:', task.title)
+  console.log('Direction:', direction)
+  
   resizingTask.value = task
   resizeDirection.value = direction
   isResizing.value = true
   
-  // Initiële preview waarden
+  // Lees de HUIDIGE datums
   const startDate = new Date(task.startDate)
   const endDate = new Date(task.endDate)
-  previewStartMonth.value = startDate.getMonth()
-  previewEndMonth.value = endDate.getMonth()
+  originalStartMonth.value = startDate.getMonth()
+  originalEndMonth.value = endDate.getMonth()
+  previewStartMonth.value = originalStartMonth.value
+  previewEndMonth.value = originalEndMonth.value
+  
+  console.log('Original months:', originalStartMonth.value, 'to', originalEndMonth.value)
+  console.log('Original dates:', task.startDate, 'to', task.endDate)
   
   document.addEventListener('mousemove', handleResizeMove)
   document.addEventListener('mouseup', handleResizeEnd)
@@ -222,56 +262,75 @@ function handleResizeMove(event) {
   if (!tasksGrid) return
   
   const rect = tasksGrid.getBoundingClientRect()
-  const mouseX = event.clientX - rect.left
+  const mouseX = Math.max(0, Math.min(rect.width, event.clientX - rect.left))
   const gridWidth = rect.width
   
-  // Bereken welke maand (0-11)
+  // Bereken welke maand (0-11) - gebruik de ratio voor betere precisie
   let targetMonth = Math.floor((mouseX / gridWidth) * 12)
   targetMonth = Math.max(0, Math.min(11, targetMonth))
   
-  const task = resizingTask.value
-  const currentStartDate = new Date(task.startDate)
-  const currentEndDate = new Date(task.endDate)
-  const currentStartMonth = currentStartDate.getMonth()
-  const currentEndMonth = currentEndDate.getMonth()
-  
   if (resizeDirection.value === 'left') {
-    // Resize startdatum
-    if (targetMonth < currentEndMonth) {
+    // Resize startdatum - einddatum blijft VAST op originele positie
+    if (targetMonth <= originalEndMonth.value) {
       previewStartMonth.value = targetMonth
-      previewEndMonth.value = currentEndMonth
+      previewEndMonth.value = originalEndMonth.value
     }
   } else if (resizeDirection.value === 'right') {
-    // Resize einddatum
-    if (targetMonth > currentStartMonth) {
-      previewStartMonth.value = currentStartMonth
+    // Resize einddatum - startdatum blijft VAST op originele positie  
+    if (targetMonth >= originalStartMonth.value) {
+      previewStartMonth.value = originalStartMonth.value
       previewEndMonth.value = targetMonth
     }
   }
 }
 
 function handleResizeEnd(event) {
+  console.log('=== RESIZE END ===')
+  
   if (!resizingTask.value || !isResizing.value) {
+    console.log('No resize task, cleanup')
     cleanup()
     return
   }
   
   const task = resizingTask.value
+  const startMonth = previewStartMonth.value
+  const endMonth = previewEndMonth.value
   
-  if (previewStartMonth.value !== null && previewEndMonth.value !== null) {
-    // Eerste dag van startmaand
-    const newStartDate = new Date(props.year, previewStartMonth.value, 1)
-    // Laatste dag van eindmaand
-    const newEndDate = new Date(props.year, previewEndMonth.value + 1, 0)
-    
-    console.log('Resize:', task.title, 'van', newStartDate.toLocaleDateString(), 'tot', newEndDate.toLocaleDateString())
-    
-    emit('updateTask', {
-      ...task,
-      startDate: newStartDate.toISOString().split('T')[0],
-      endDate: newEndDate.toISOString().split('T')[0]
-    })
+  console.log('Preview months:', startMonth, 'to', endMonth)
+  console.log('Preview month names:', months[startMonth], 'to', months[endMonth])
+  
+  if (startMonth === null || endMonth === null) {
+    console.log('Invalid months, cleanup')
+    cleanup()
+    return
   }
+  
+  // Maak nieuwe datums - SIMPEL
+  // Start: eerste dag van startmaand
+  const newStartYear = props.year
+  const newStartMonth = startMonth  // 0-indexed
+  const newStartDay = 1
+  
+  // Eind: laatste dag van eindmaand
+  const newEndYear = props.year
+  const newEndMonth = endMonth + 1  // +1 omdat we dag 0 pakken van VOLGENDE maand
+  const newEndDay = 0  // Dag 0 = laatste dag van vorige maand
+  
+  const startDateObj = new Date(newStartYear, newStartMonth, newStartDay)
+  const endDateObj = new Date(newEndYear, newEndMonth, newEndDay)
+  
+  const newStartDate = startDateObj.toISOString().split('T')[0]
+  const newEndDate = endDateObj.toISOString().split('T')[0]
+  
+  console.log('New dates:', newStartDate, 'to', newEndDate)
+  console.log('Emitting updateTask for task:', task.id, task.originalId)
+  
+  emit('updateTask', {
+    ...task,
+    startDate: newStartDate,
+    endDate: newEndDate
+  })
   
   cleanup()
 }
@@ -284,6 +343,8 @@ function cleanup() {
   resizeDirection.value = null
   previewStartMonth.value = null
   previewEndMonth.value = null
+  originalStartMonth.value = null
+  originalEndMonth.value = null
   isResizing.value = false
 }
 </script>
@@ -319,11 +380,7 @@ function cleanup() {
           @dragover.prevent="handleDragOver($event, index)"
           @dragleave="handleDragLeave"
           @drop="handleDrop($event, index)"
-        >
-          <div v-if="hoverMonth === index && draggingTask" class="drop-indicator">
-            Drop hier
-          </div>
-        </div>
+        ></div>
       </div>
       
       <!-- Grid achtergrond met maand kolommen -->
@@ -516,19 +573,21 @@ function cleanup() {
   background-color: rgba(76, 175, 80, 0.15) !important;
   border: 2px dashed #4CAF50;
   border-radius: 4px;
+  position: relative;
 }
 
-.drop-indicator {
+.drop-zone-hover::after {
+  content: 'Drop hier';
   position: absolute;
   top: 50%;
   left: 50%;
   transform: translate(-50%, -50%);
   background: #4CAF50;
   color: white;
-  padding: 12px 24px;
+  padding: 8px 16px;
   border-radius: 6px;
   font-weight: 600;
-  font-size: 16px;
+  font-size: 14px;
   box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
   pointer-events: none;
   z-index: 100;

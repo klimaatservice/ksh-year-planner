@@ -145,6 +145,7 @@ function handleResizeStart(direction, event) {
   gap: 5px;
   opacity: 0;
   transition: all 0.2s;
+  z-index: 30;
 }
 
 .task-card:hover .task-actions {
@@ -164,6 +165,7 @@ function handleResizeStart(direction, event) {
   justify-content: center;
   font-size: 14px;
   transition: all 0.2s;
+  pointer-events: all;
 }
 
 .task-btn:hover {
