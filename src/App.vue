@@ -987,10 +987,7 @@ h1 {
 
 /* Normale tijdlijn print (A3 landscape) */
 @media print {
-  @page {
-    size: A3 landscape;
-    margin: 15mm;
-  }
+  /* Page size handled by browser print settings */
   
   .timeline-section {
     page-break-after: always;
@@ -1069,11 +1066,6 @@ h1 {
     display: block !important;
   }
   
-  .print-mode {
-    @page {
-      size: A4 portrait !important;
-      margin: 15mm;
-    }
-  }
+  /* Print mode uses A4 portrait - set via browser print dialog */
 }
 </style>
