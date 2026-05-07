@@ -169,25 +169,21 @@ function handleDrop(event, targetMonth) {
   const task = draggingTask.value
   const oldStartDate = new Date(task.startDate)
   const oldEndDate = new Date(task.endDate)
-  const duration = oldEndDate - oldStartDate
   
-  // Bereken de positie binnen de maand (0.0 = begin, 1.0 = eind)
-  const dropZone = event.currentTarget
-  const rect = dropZone.getBoundingClientRect()
-  const relativeX = event.clientX - rect.left
-  const monthProgress = Math.max(0, Math.min(1, relativeX / rect.width))
+  // Bereken hoeveel maanden de taak duurt
+  const startMonth = oldStartDate.getMonth()
+  const endMonth = oldEndDate.getMonth()
+  const startYear = oldStartDate.getFullYear()
+  const endYear = oldEndDate.getFullYear()
+  const durationInMonths = (endYear - startYear) * 12 + (endMonth - startMonth)
   
-  // Bereken aantal dagen in deze maand
-  const daysInMonth = new Date(props.year, targetMonth + 1, 0).getDate()
+  // Nieuwe startdatum = eerste dag van target maand
+  const newStartDate = new Date(props.year, targetMonth, 1)
+  // Nieuwe einddatum = laatste dag van (target maand + duur)
+  const newEndMonth = targetMonth + durationInMonths
+  const newEndDate = new Date(props.year, newEndMonth + 1, 0) // Laatste dag van de maand
   
-  // Bereken de dag binnen de maand (1-indexed)
-  const dayInMonth = Math.max(1, Math.min(daysInMonth, Math.floor(monthProgress * daysInMonth) + 1))
-  
-  // Nieuwe startdatum op basis van drop positie
-  const newStartDate = new Date(props.year, targetMonth, dayInMonth)
-  const newEndDate = new Date(newStartDate.getTime() + duration)
-  
-  console.log('Updating:', task.title, 'to', newStartDate.toLocaleDateString(), '(day', dayInMonth, 'of month', targetMonth + 1 + ')')
+  console.log('Updating:', task.title, 'to', newStartDate.toLocaleDateString(), '-', newEndDate.toLocaleDateString())
   
   emit('updateTask', {
     ...task,
@@ -268,7 +264,7 @@ function handleResizeEnd(event) {
     // Laatste dag van eindmaand
     const newEndDate = new Date(props.year, previewEndMonth.value + 1, 0)
     
-    console.log('Resize end:', task.title, 'van maand', previewStartMonth.value + 1, 'tot', previewEndMonth.value + 1)
+    console.log('Resize:', task.title, 'van', newStartDate.toLocaleDateString(), 'tot', newEndDate.toLocaleDateString())
     
     emit('updateTask', {
       ...task,
