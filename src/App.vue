@@ -987,16 +987,9 @@ h1 {
 
 /* Normale tijdlijn print (A3 landscape) */
 @media print {
-  /* 
-    BELANGRIJK: Stel in je print dialog in:
-    - Paper size: A3 of A4
-    - Orientation: Landscape (horizontaal)
-    - Margins: Minimaal
-  */
-  
-  body {
-    width: 100%;
-    height: 100%;
+  @page {
+    size: A3 landscape;
+    margin: 10mm;
   }
   
   .timeline-section {
@@ -1075,7 +1068,18 @@ h1 {
   .print-mode .todo-print-view {
     display: block !important;
   }
-  
-  /* Print mode uses A4 portrait - set via browser print dialog */
+}
+
+/* Todo Print View - A4 portrait alleen voor print-mode */
+@media print {
+  .print-mode {
+    /* Dit zorgt dat PrintView A4 portrait gebruikt */
+  }
+}
+
+/* Specifieke styling voor PrintView component in print mode */
+@page:first {
+  size: A3 landscape;
+  margin: 10mm;
 }
 </style>
