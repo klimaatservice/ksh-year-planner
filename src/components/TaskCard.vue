@@ -5,7 +5,7 @@ const props = defineProps({
   task: Object
 })
 
-const emit = defineEmits(['edit', 'delete', 'click'])
+const emit = defineEmits(['edit', 'delete', 'click', 'dragstart', 'dragend', 'resizeStart'])
 
 // Format de titel met line breaks
 const formattedTitle = computed(() => {
@@ -21,14 +21,36 @@ function handleDelete() {
     emit('delete')
   }
 }
+
+function handleDragStart(event) {
+  emit('dragstart', event)
+}
+
+function handleDragEnd(event) {
+  emit('dragend', event)
+}
+
+function handleResizeStart(direction, event) {
+  event.preventDefault()
+  event.stopPropagation()
+  emit('resizeStart', props.task, direction, event)
+}
 </script>
 
 <template>
   <div 
     class="task-card" 
     :style="{ backgroundColor: task.color }"
+    draggable="true"
     @click="emit('click')"
+    @dragstart="handleDragStart"
+    @dragend="handleDragEnd"
   >
+    <div 
+      class="resize-handle resize-left"
+      @mousedown.prevent.stop="handleResizeStart('left', $event)"
+      title="Sleep om startdatum te wijzigen"
+    ></div>
     <div class="task-content">
       <div class="task-title">{{ formattedTitle }}</div>
       <div class="task-actions">
@@ -36,6 +58,11 @@ function handleDelete() {
         <button @click.stop="handleDelete" class="task-btn" title="Verwijderen">🗑️</button>
       </div>
     </div>
+    <div 
+      class="resize-handle resize-right"
+      @mousedown.prevent.stop="handleResizeStart('right', $event)"
+      title="Sleep om einddatum te wijzigen"
+    ></div>
   </div>
 </template>
 
@@ -44,15 +71,16 @@ function handleDelete() {
   height: 100px;
   border-radius: 6px;
   padding: 10px 12px;
-  cursor: pointer;
+  cursor: move;
   transition: all 0.2s;
   box-shadow: 0 2px 4px rgba(0,0,0,0.1);
   border: 1px solid rgba(0,0,0,0.15);
-  overflow: hidden;
+  overflow: visible;
   display: flex;
   align-items: center;
   background-color: v-bind('task.color');
   box-sizing: border-box;
+  position: relative;
 }
 
 @media print {
@@ -69,6 +97,12 @@ function handleDelete() {
   transform: translateY(-2px);
   box-shadow: 0 4px 8px rgba(0,0,0,0.15);
   z-index: 10;
+}
+
+.task-card:active {
+  cursor: grabbing;
+  opacity: 0.7;
+  transform: scale(1.02);
 }
 
 .task-content {
@@ -125,5 +159,36 @@ function handleDelete() {
 .task-btn:hover {
   background: white;
   transform: scale(1.1);
+}
+
+.resize-handle {
+  position: absolute;
+  top: 0;
+  bottom: 0;
+  width: 10px;
+  cursor: ew-resize;
+  background: transparent;
+  transition: all 0.2s;
+  z-index: 20;
+}
+
+.resize-handle:hover {
+  background: rgba(0, 0, 0, 0.1);
+}
+
+.resize-left {
+  left: 0;
+  border-top-left-radius: 6px;
+  border-bottom-left-radius: 6px;
+}
+
+.resize-right {
+  right: 0;
+  border-top-right-radius: 6px;
+  border-bottom-right-radius: 6px;
+}
+
+.task-card:hover .resize-handle {
+  background: rgba(0, 0, 0, 0.15);
 }
 </style>

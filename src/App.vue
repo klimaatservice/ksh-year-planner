@@ -2,6 +2,7 @@
 import { ref, computed, watch, onMounted } from 'vue'
 import Timeline from './components/Timeline.vue'
 import TaskCard from './components/TaskCard.vue'
+import PrintView from './components/PrintView.vue'
 
 const year = ref(new Date().getFullYear())
 
@@ -148,6 +149,7 @@ const tasksByYear = computed(() => {
 
 const showForm = ref(false)
 const showDetailsModal = ref(false)
+const showPrintView = ref(false)
 const editingTask = ref(null)
 const viewingTask = ref(null)
 const newTask = ref({
@@ -210,6 +212,34 @@ function editTask(task) {
 
 function deleteTask(taskId) {
   tasks.value = tasks.value.filter(t => t.id !== taskId)
+}
+
+function updateTask(updatedTask) {
+  // Zoek de originele taak (niet de gesplitste versie)
+  const taskId = updatedTask.originalId || updatedTask.id
+  
+  // Als het een gesplitste taak ID is (bijv. "1-2026"), haal dan het originele ID eruit
+  let realTaskId = taskId
+  if (typeof taskId === 'string' && taskId.includes('-')) {
+    const parts = taskId.split('-')
+    if (parts.length === 2 && !isNaN(parts[0])) {
+      realTaskId = parseInt(parts[0])
+    }
+  }
+  
+  const index = tasks.value.findIndex(t => t.id === realTaskId)
+  
+  if (index !== -1) {
+    console.log('Updating task:', tasks.value[index].title, 'naar', updatedTask.startDate, '-', updatedTask.endDate)
+    // Update de taak met de nieuwe datums, behoud andere eigenschappen
+    tasks.value[index] = {
+      ...tasks.value[index],
+      startDate: updatedTask.startDate,
+      endDate: updatedTask.endDate
+    }
+  } else {
+    console.error('Task not found:', realTaskId, taskId)
+  }
 }
 
 function viewTaskDetails(task) {
@@ -318,6 +348,10 @@ function printTimeline() {
   window.print()
 }
 
+function togglePrintView() {
+  showPrintView.value = !showPrintView.value
+}
+
 function clearAllTasks() {
   if (confirm('Weet je zeker dat je alle taken wilt verwijderen? Dit kan niet ongedaan worden gemaakt.')) {
     tasks.value = []
@@ -332,12 +366,15 @@ function clearAllTasks() {
       <h1>Tijdlijn {{ year }}</h1>
       <div class="header-actions">
         <button @click="showForm = true" class="btn-primary">+ Nieuwe Taak</button>
+        <button @click="togglePrintView" class="btn-secondary">
+          {{ showPrintView ? '📅 Tijdlijn' : '📝 Todo Print' }}
+        </button>
+        <button @click="printTimeline" class="btn-secondary">🖨️ Afdrukken</button>
         <button @click="exportJSON" class="btn-secondary">Exporteer JSON</button>
         <label class="btn-secondary">
           Importeer JSON
           <input type="file" accept=".json" @change="importJSON" style="display: none" />
         </label>
-        <button @click="printTimeline" class="btn-secondary">🖨️ Afdrukken</button>
         <button @click="clearAllTasks" class="btn-danger">🗑️ Wis Alles</button>
       </div>
     </header>
@@ -458,16 +495,38 @@ function clearAllTasks() {
       </div>
     </div>
 
-    <Timeline 
-      v-for="yearGroup in tasksByYear" 
-      :key="yearGroup.year"
-      :year="yearGroup.year" 
-      :tasks="yearGroup.tasks" 
-      @edit="editTask" 
-      @delete="deleteTask"
-      @click="viewTaskDetails"
-      class="timeline-section"
-    />
+    <div v-if="!showPrintView">
+      <Timeline 
+        v-for="yearGroup in tasksByYear" 
+        :key="yearGroup.year"
+        :year="yearGroup.year" 
+        :tasks="yearGroup.tasks" 
+        @edit="editTask" 
+        @delete="deleteTask"
+        @click="viewTaskDetails"
+        @updateTask="updateTask"
+        class="timeline-section"
+      />
+    </div>
+    
+    <div v-else>
+      <PrintView 
+        v-for="yearGroup in tasksByYear" 
+        :key="`print-${yearGroup.year}`"
+        :year="yearGroup.year" 
+        :tasks="yearGroup.tasks"
+      />
+    </div>
+    
+    <!-- PrintView altijd in DOM voor print functionaliteit -->
+    <div v-show="false" class="print-only-container">
+      <PrintView 
+        v-for="yearGroup in tasksByYear" 
+        :key="`print-hidden-${yearGroup.year}`"
+        :year="yearGroup.year" 
+        :tasks="yearGroup.tasks"
+      />
+    </div>
   </div>
 </template>
 
@@ -839,7 +898,7 @@ h1 {
 /* Print stijlen */
 @media print {
   @page {
-    size: A3 landscape;
+    size: A4 portrait;
     margin: 15mm;
   }
   
@@ -866,70 +925,23 @@ h1 {
     display: none !important;
   }
   
+  /* Verberg de normale timeline view bij printen */
   .timeline-section {
-    page-break-after: always;
-    page-break-inside: avoid;
-    margin-bottom: 0;
-    height: 100vh;
-    display: flex;
-    flex-direction: column;
-  }
-  
-  .timeline-section:last-of-type {
-    page-break-after: auto;
-  }
-  
-  .timeline-container {
-    box-shadow: none;
-    page-break-inside: avoid;
-    padding: 5mm;
-    width: 100%;
-    flex: 1;
-    display: flex;
-    flex-direction: column;
-    overflow: hidden !important;
-  }
-  
-  .timeline-year {
-    font-size: 24px;
-    margin-bottom: 10mm;
-  }
-  
-  .timeline-header {
-    margin-bottom: 10mm;
-  }
-  
-  .timeline-grid {
-    flex: 1;
-    min-height: 0 !important;
-    height: auto !important;
-    overflow: hidden !important;
-  }
-  
-  .task-card {
-    box-shadow: 0 2px 4px rgba(0,0,0,0.2) !important;
-    page-break-inside: avoid;
-    overflow: hidden !important;
-    -webkit-print-color-adjust: exact !important;
-    print-color-adjust: exact !important;
-    color-adjust: exact !important;
-  }
-  
-  .task-actions {
     display: none !important;
   }
   
-  .grid-column {
-    border-right: 1px solid #ddd !important;
+  /* Toon alleen de print-only container bij printen */
+  .print-only-container {
+    display: block !important;
   }
   
-  .month-line {
-    background: #333 !important;
+  /* Verberg de preview versie bij printen */
+  .app > div:not(.print-only-container) {
+    display: none !important;
   }
-  
-  .month-label {
-    color: #333 !important;
-    font-size: 12px !important;
-  }
+}
+
+.print-only-container {
+  display: none;
 }
 </style>

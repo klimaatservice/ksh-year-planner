@@ -7,7 +7,15 @@ const props = defineProps({
   tasks: Array
 })
 
-const emit = defineEmits(['edit', 'delete', 'click'])
+const emit = defineEmits(['edit', 'delete', 'click', 'updateTask'])
+
+const draggingTask = ref(null)
+const resizingTask = ref(null)
+const resizeDirection = ref(null)
+const previewStartMonth = ref(null)
+const previewEndMonth = ref(null)
+const isResizing = ref(false)
+const hoverMonth = ref(null)
 
 const months = [
   'Januari', 'Februari', 'Maart', 'April', 'Mei', 'Juni',
@@ -24,39 +32,51 @@ const monthLengths = computed(() => {
 
 // Bereken grid positie voor elke taak
 function getTaskStyle(task) {
-  const startDate = new Date(task.startDate)
-  const endDate = new Date(task.endDate)
+  // Als we deze taak aan het resizen zijn, gebruik preview waarden
+  const isThisTaskResizing = isResizing.value && resizingTask.value && 
+    (resizingTask.value.id === task.id || resizingTask.value.originalId === task.id)
   
-  // Bepaal start en eind maand (1-based)
-  const startMonth = startDate.getMonth() + 1
-  const endMonth = endDate.getMonth() + 1
-  const startYear = startDate.getFullYear()
-  const endYear = endDate.getFullYear()
+  let startMonth, endMonth
   
-  let columnStart = startMonth
-  let columnEnd = endMonth + 1 // +1 omdat grid-column-end exclusief is
-  
-  // Als task in dit jaar begint maar doorloopt naar volgend jaar
-  if (startYear === props.year && endYear > props.year) {
-    columnStart = startMonth
-    columnEnd = 13 // Tot einde van het jaar (31 december)
+  if (isThisTaskResizing && previewStartMonth.value !== null && previewEndMonth.value !== null) {
+    startMonth = previewStartMonth.value + 1 // Convert to 1-based
+    endMonth = previewEndMonth.value + 1
+  } else {
+    const startDate = new Date(task.startDate)
+    const endDate = new Date(task.endDate)
+    
+    // Bepaal start en eind maand (1-based)
+    startMonth = startDate.getMonth() + 1
+    endMonth = endDate.getMonth() + 1
+    const startYear = startDate.getFullYear()
+    const endYear = endDate.getFullYear()
+    
+    // Als task in dit jaar begint maar doorloopt naar volgend jaar
+    if (startYear === props.year && endYear > props.year) {
+      startMonth = startMonth
+      endMonth = 12
+    }
+    // Als task vanuit vorig jaar doorloopt
+    else if (startYear < props.year && endYear === props.year) {
+      startMonth = 1
+      endMonth = endMonth
+    }
   }
-  // Als task vanuit vorig jaar doorloopt
-  else if (startYear < props.year && endYear === props.year) {
-    columnStart = 1
-    columnEnd = endMonth + 1
-  }
-  // Als task volledig dit jaar beslaat
-  else if (startYear === props.year && endYear === props.year) {
-    columnStart = startMonth
-    columnEnd = endMonth + 1
-  }
   
-  return {
-    gridColumnStart: columnStart,
-    gridColumnEnd: columnEnd,
+  const style = {
+    gridColumnStart: startMonth,
+    gridColumnEnd: endMonth + 1,
     gridRow: task.row + 1
   }
+  
+  // Voeg visuele feedback toe tijdens resize
+  if (isThisTaskResizing) {
+    style.opacity = '0.8'
+    style.border = '3px solid #4CAF50'
+    style.boxShadow = '0 4px 12px rgba(76, 175, 80, 0.4)'
+  }
+  
+  return style
 }
 
 // Bereken maand markeringen
@@ -109,6 +129,167 @@ function scrollToNextYear() {
     }
   }
 }
+
+// Drag and Drop handlers - werkende versie
+function handleDragStart(task, event) {
+  console.log('Drag start:', task.title)
+  draggingTask.value = task
+  event.dataTransfer.effectAllowed = 'move'
+  event.dataTransfer.setData('text/plain', task.id)
+}
+
+function handleDragEnd(event) {
+  console.log('Drag end')
+  draggingTask.value = null
+  hoverMonth.value = null
+}
+
+function handleDragOver(event, monthIndex) {
+  if (!draggingTask.value) return
+  event.preventDefault()
+  event.dataTransfer.dropEffect = 'move'
+  hoverMonth.value = monthIndex
+}
+
+function handleDragLeave() {
+  hoverMonth.value = null
+}
+
+function handleDrop(event, targetMonth) {
+  event.preventDefault()
+  event.stopPropagation()
+  
+  console.log('Drop on month:', targetMonth + 1)
+  
+  if (!draggingTask.value) {
+    console.log('No dragging task')
+    return
+  }
+  
+  const task = draggingTask.value
+  const oldStartDate = new Date(task.startDate)
+  const oldEndDate = new Date(task.endDate)
+  const duration = oldEndDate - oldStartDate
+  
+  // Bereken de positie binnen de maand (0.0 = begin, 1.0 = eind)
+  const dropZone = event.currentTarget
+  const rect = dropZone.getBoundingClientRect()
+  const relativeX = event.clientX - rect.left
+  const monthProgress = Math.max(0, Math.min(1, relativeX / rect.width))
+  
+  // Bereken aantal dagen in deze maand
+  const daysInMonth = new Date(props.year, targetMonth + 1, 0).getDate()
+  
+  // Bereken de dag binnen de maand (1-indexed)
+  const dayInMonth = Math.max(1, Math.min(daysInMonth, Math.floor(monthProgress * daysInMonth) + 1))
+  
+  // Nieuwe startdatum op basis van drop positie
+  const newStartDate = new Date(props.year, targetMonth, dayInMonth)
+  const newEndDate = new Date(newStartDate.getTime() + duration)
+  
+  console.log('Updating:', task.title, 'to', newStartDate.toLocaleDateString(), '(day', dayInMonth, 'of month', targetMonth + 1 + ')')
+  
+  emit('updateTask', {
+    ...task,
+    startDate: newStartDate.toISOString().split('T')[0],
+    endDate: newEndDate.toISOString().split('T')[0]
+  })
+  
+  draggingTask.value = null
+  hoverMonth.value = null
+}
+
+// Resize handlers met live preview
+function handleResizeStart(task, direction, event) {
+  event.stopPropagation()
+  event.preventDefault()
+  
+  resizingTask.value = task
+  resizeDirection.value = direction
+  isResizing.value = true
+  
+  // Initiële preview waarden
+  const startDate = new Date(task.startDate)
+  const endDate = new Date(task.endDate)
+  previewStartMonth.value = startDate.getMonth()
+  previewEndMonth.value = endDate.getMonth()
+  
+  document.addEventListener('mousemove', handleResizeMove)
+  document.addEventListener('mouseup', handleResizeEnd)
+  document.body.style.cursor = 'ew-resize'
+}
+
+function handleResizeMove(event) {
+  if (!resizingTask.value || !isResizing.value) return
+  
+  const tasksGrid = document.querySelector('.tasks-grid')
+  if (!tasksGrid) return
+  
+  const rect = tasksGrid.getBoundingClientRect()
+  const mouseX = event.clientX - rect.left
+  const gridWidth = rect.width
+  
+  // Bereken welke maand (0-11)
+  let targetMonth = Math.floor((mouseX / gridWidth) * 12)
+  targetMonth = Math.max(0, Math.min(11, targetMonth))
+  
+  const task = resizingTask.value
+  const currentStartDate = new Date(task.startDate)
+  const currentEndDate = new Date(task.endDate)
+  const currentStartMonth = currentStartDate.getMonth()
+  const currentEndMonth = currentEndDate.getMonth()
+  
+  if (resizeDirection.value === 'left') {
+    // Resize startdatum
+    if (targetMonth < currentEndMonth) {
+      previewStartMonth.value = targetMonth
+      previewEndMonth.value = currentEndMonth
+    }
+  } else if (resizeDirection.value === 'right') {
+    // Resize einddatum
+    if (targetMonth > currentStartMonth) {
+      previewStartMonth.value = currentStartMonth
+      previewEndMonth.value = targetMonth
+    }
+  }
+}
+
+function handleResizeEnd(event) {
+  if (!resizingTask.value || !isResizing.value) {
+    cleanup()
+    return
+  }
+  
+  const task = resizingTask.value
+  
+  if (previewStartMonth.value !== null && previewEndMonth.value !== null) {
+    // Eerste dag van startmaand
+    const newStartDate = new Date(props.year, previewStartMonth.value, 1)
+    // Laatste dag van eindmaand
+    const newEndDate = new Date(props.year, previewEndMonth.value + 1, 0)
+    
+    console.log('Resize end:', task.title, 'van maand', previewStartMonth.value + 1, 'tot', previewEndMonth.value + 1)
+    
+    emit('updateTask', {
+      ...task,
+      startDate: newStartDate.toISOString().split('T')[0],
+      endDate: newEndDate.toISOString().split('T')[0]
+    })
+  }
+  
+  cleanup()
+}
+
+function cleanup() {
+  document.removeEventListener('mousemove', handleResizeMove)
+  document.removeEventListener('mouseup', handleResizeEnd)
+  document.body.style.cursor = ''
+  resizingTask.value = null
+  resizeDirection.value = null
+  previewStartMonth.value = null
+  previewEndMonth.value = null
+  isResizing.value = false
+}
 </script>
 
 <template>
@@ -132,6 +313,23 @@ function scrollToNextYear() {
     </div>
     
     <div class="timeline-grid" :style="{ height: (maxRow + 1) * 120 + 150 + 'px' }">
+      <!-- Drop zones voor elke maand (over hele hoogte) -->
+      <div class="drop-zones">
+        <div 
+          v-for="(length, index) in monthLengths" 
+          :key="'drop-' + index" 
+          class="drop-zone"
+          :class="{ 'drop-zone-hover': hoverMonth === index && draggingTask }"
+          @dragover.prevent="handleDragOver($event, index)"
+          @dragleave="handleDragLeave"
+          @drop="handleDrop($event, index)"
+        >
+          <div v-if="hoverMonth === index && draggingTask" class="drop-indicator">
+            Drop hier
+          </div>
+        </div>
+      </div>
+      
       <!-- Grid achtergrond met maand kolommen -->
       <div class="grid-background">
         <div 
@@ -151,6 +349,9 @@ function scrollToNextYear() {
           @click="emit('click', task)"
           @edit="emit('edit', task)"
           @delete="emit('delete', task.id)"
+          @dragstart="handleDragStart(task, $event)"
+          @dragend="handleDragEnd"
+          @resize-start="handleResizeStart"
         />
       </div>
     </div>
@@ -296,6 +497,47 @@ function scrollToNextYear() {
   overflow: hidden;
 }
 
+.drop-zones {
+  position: absolute;
+  top: 0;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  display: grid;
+  grid-template-columns: 31fr 28fr 31fr 30fr 31fr 30fr 31fr 31fr 30fr 31fr 30fr 31fr;
+  gap: 0;
+  pointer-events: all;
+  z-index: 1;
+}
+
+.drop-zone {
+  position: relative;
+  pointer-events: all;
+  transition: background-color 0.2s;
+}
+
+.drop-zone-hover {
+  background-color: rgba(76, 175, 80, 0.15) !important;
+  border: 2px dashed #4CAF50;
+  border-radius: 4px;
+}
+
+.drop-indicator {
+  position: absolute;
+  top: 50%;
+  left: 50%;
+  transform: translate(-50%, -50%);
+  background: #4CAF50;
+  color: white;
+  padding: 12px 24px;
+  border-radius: 6px;
+  font-weight: 600;
+  font-size: 16px;
+  box-shadow: 0 4px 12px rgba(76, 175, 80, 0.4);
+  pointer-events: none;
+  z-index: 100;
+}
+
 .grid-background {
   position: absolute;
   top: 0;
@@ -305,10 +547,14 @@ function scrollToNextYear() {
   display: grid;
   grid-template-columns: 31fr 28fr 31fr 30fr 31fr 30fr 31fr 31fr 30fr 31fr 30fr 31fr;
   gap: 0;
+  pointer-events: none;
+  z-index: 0;
 }
 
 .grid-column {
   border-right: 1px solid #eee;
+  height: 100%;
+  min-height: 100%;
 }
 
 .grid-column:last-child {
@@ -325,9 +571,12 @@ function scrollToNextYear() {
   gap: 8px;
   padding: 4px;
   box-sizing: border-box;
+  pointer-events: none;
+  z-index: 2;
 }
 
 .tasks-grid > * {
   box-sizing: border-box;
+  pointer-events: all;
 }
 </style>
